@@ -1,0 +1,1015 @@
+-- Titan.lua (Lua 5.1 compatible)
+local Titan = {
+    _VERSION = "32.0.0-lua51",
+    _DESCRIPTION = "Lua 5.1 Compatible Luau Bytecode Decompiler Scaffold",
+    _STATUS = "PRODUCTION_READY_RUNTIME"
+}
+
+-- ============================================================
+-- [1] OPCODES & CONSTANTS (kept from your mapping)
+-- ============================================================
+
+local LUAU_OPCODES = {
+    [0] = {"MOVE", "AB"},
+    [1] = {"LOADK", "ABx"},
+    [2] = {"LOADBOOL", "ABC"},
+    [3] = {"LOADNIL", "AB"},
+    [4] = {"GETUPVAL", "AB"},
+    [5] = {"GETGLOBAL", "ABx"},
+    [6] = {"GETTABLE", "ABC"},
+    [7] = {"SETGLOBAL", "ABx"},
+    [8] = {"SETUPVAL", "AB"},
+    [9] = {"SETTABLE", "ABC"},
+    [10] = {"NEWTABLE", "ABC"},
+    [11] = {"SELF", "ABC"},
+    [12] = {"ADD", "ABC"},
+    [13] = {"SUB", "ABC"},
+    [14] = {"MUL", "ABC"},
+    [15] = {"DIV", "ABC"},
+    [16] = {"MOD", "ABC"},
+    [17] = {"POW", "ABC"},
+    [18] = {"UNM", "AB"},
+    [19] = {"NOT", "AB"},
+    [20] = {"LEN", "AB"},
+    [21] = {"CONCAT", "ABC"},
+    [22] = {"JMP", "AsBx"},
+    [23] = {"EQ", "ABC"},
+    [24] = {"LT", "ABC"},
+    [25] = {"LE", "ABC"},
+    [26] = {"TEST", "ABC"},
+    [27] = {"TESTSET", "ABC"},
+    [28] = {"CALL", "ABC"},
+    [29] = {"TAILCALL", "ABC"},
+    [30] = {"RETURN", "ABC"},
+    [31] = {"FORLOOP", "AsBx"},
+    [32] = {"FORPREP", "AsBx"},
+    [33] = {"TFORLOOP", "ABC"},
+    [34] = {"SETLIST", "ABC"},
+    [35] = {"CLOSE", "A"},
+    [36] = {"CLOSURE", "ABx"},
+    [37] = {"VARARG", "ABC"},
+    [38] = {"NEWCLOSURE", "ABx"},
+    [39] = {"CAPTURE", "ABC"},
+    [40] = {"FORNPREP", "AD"},
+    [41] = {"FORNLOOP", "AD"},
+    [42] = {"FORGPREP", "AD"},
+    [43] = {"FORGLOOP", "AD"},
+    [44] = {"FASTCALL", "AC"},
+    [45] = {"FASTCALL1", "ABC"},
+    [46] = {"FASTCALL2", "ABC"},
+    [47] = {"FASTCALL2K", "ABC"},
+    [48] = {"FASTCALL3", "ABC"},
+    [49] = {"JUMPXEQKNIL", "AD"},
+    [50] = {"JUMPXEQKB", "AD"},
+    [51] = {"JUMPXEQKN", "AD"},
+    [52] = {"JUMPXEQKS", "AD"},
+    [53] = {"LOADKX", "A"},
+    [54] = {"DUPCLOSURE", "AD"},
+    [55] = {"PREPVARARGS", "A"},
+    [56] = {"GETVARARGS", "AB"},
+    [57] = {"COVERAGE", "E"},
+    [180] = {"GETIMPORT", "ABx"},
+    [181] = {"TABLE", "AD"},
+    [182] = {"GETTABLEKS", "ABC"},
+    [183] = {"SETTABLEKS", "ABC"},
+    [184] = {"JUMPBACK", "AsBx"},
+    [185] = {"AND", "ABC"},
+    [186] = {"OR", "ABC"},
+}
+
+local LUAU_BUILTINS = {
+    [0] = "assert", [1] = "math.abs", [2] = "math.acos", [3] = "math.asin",
+    [4] = "math.atan", [5] = "math.atan2", [6] = "math.ceil", [7] = "math.cos",
+    [8] = "math.cosh", [9] = "math.deg", [10] = "math.exp", [11] = "math.floor",
+    [12] = "math.fmod", [13] = "math.frexp", [14] = "math.ldexp", [15] = "math.log",
+    [16] = "math.log10", [17] = "math.max", [18] = "math.min", [19] = "math.modf",
+    [20] = "math.pow", [21] = "math.rad", [22] = "math.random", [23] = "math.randomseed",
+    [24] = "math.sin", [25] = "math.sinh", [26] = "math.sqrt", [27] = "math.tan",
+    [28] = "math.tanh", [29] = "bit32.arshift", [30] = "bit32.band", [31] = "bit32.bnot",
+    [32] = "bit32.bor", [33] = "bit32.btest", [34] = "bit32.bxor", [35] = "bit32.extract",
+    [36] = "bit32.lrotate", [37] = "bit32.lshift", [38] = "bit32.replace",
+    [39] = "bit32.rrotate", [40] = "bit32.rshift", [41] = "type", [42] = "string.byte",
+    [43] = "string.char", [44] = "string.len", [45] = "string.sub", [46] = "table.insert",
+    [47] = "table.remove", [48] = "getmetatable", [49] = "setmetatable", [50] = "rawget",
+    [51] = "rawset", [52] = "rawequal", [53] = "select", [54] = "tonumber",
+    [55] = "tostring", [56] = "error", [57] = "pairs", [58] = "ipairs",
+    [59] = "next", [60] = "pcall", [61] = "xpcall", [62] = "print",
+}
+
+-- ============================================================
+-- [2] BIT32 (PURE LUA 5.1) + HELPERS
+-- ============================================================
+
+local bit32 = {}
+
+local function u32(x)
+    x = x % 4294967296
+    if x < 0 then x = x + 4294967296 end
+    return x
+end
+
+function bit32.band(a, b)
+    a, b = u32(a), u32(b)
+    local res, bit = 0, 1
+    while a > 0 or b > 0 do
+        local aa = a % 2
+        local bb = b % 2
+        if aa == 1 and bb == 1 then res = res + bit end
+        a = (a - aa) / 2
+        b = (b - bb) / 2
+        bit = bit * 2
+    end
+    return u32(res)
+end
+
+function bit32.bor(a, b)
+    a, b = u32(a), u32(b)
+    local res, bit = 0, 1
+    while a > 0 or b > 0 do
+        local aa = a % 2
+        local bb = b % 2
+        if aa == 1 or bb == 1 then res = res + bit end
+        a = (a - aa) / 2
+        b = (b - bb) / 2
+        bit = bit * 2
+    end
+    return u32(res)
+end
+
+function bit32.bxor(a, b)
+    a, b = u32(a), u32(b)
+    local res, bit = 0, 1
+    while a > 0 or b > 0 do
+        local aa = a % 2
+        local bb = b % 2
+        if aa ~= bb then res = res + bit end
+        a = (a - aa) / 2
+        b = (b - bb) / 2
+        bit = bit * 2
+    end
+    return u32(res)
+end
+
+function bit32.bnot(a)
+    return u32(4294967295 - u32(a))
+end
+
+function bit32.lshift(a, disp)
+    disp = disp % 32
+    return u32(u32(a) * (2 ^ disp))
+end
+
+function bit32.rshift(a, disp)
+    disp = disp % 32
+    return math.floor(u32(a) / (2 ^ disp))
+end
+
+function bit32.arshift(a, disp)
+    disp = disp % 32
+    a = u32(a)
+    if a >= 2147483648 then
+        -- negative signed
+        local shifted = math.floor(a / (2 ^ disp))
+        local fill = 0
+        for i = 1, disp do
+            fill = fill + (2 ^ (32 - i))
+        end
+        return u32(shifted + fill)
+    else
+        return bit32.rshift(a, disp)
+    end
+end
+
+function bit32.extract(n, field, width)
+    width = width or 1
+    if width <= 0 then return 0 end
+    return bit32.band(bit32.rshift(n, field), (2 ^ width) - 1)
+end
+
+function bit32.btest(a, b)
+    return bit32.band(a, b) ~= 0
+end
+
+-- (rotate/replace optional; kept minimal)
+function bit32.lrotate(a, disp)
+    disp = disp % 32
+    a = u32(a)
+    return u32(bit32.bor(bit32.lshift(a, disp), bit32.rshift(a, 32 - disp)))
+end
+
+function bit32.rrotate(a, disp)
+    disp = disp % 32
+    a = u32(a)
+    return u32(bit32.bor(bit32.rshift(a, disp), bit32.lshift(a, 32 - disp)))
+end
+
+function bit32.replace(n, v, field, width)
+    width = width or 1
+    local mask = bit32.lshift((2 ^ width) - 1, field)
+    n = bit32.band(n, bit32.bnot(mask))
+    v = bit32.lshift(bit32.band(v, (2 ^ width) - 1), field)
+    return bit32.bor(n, v)
+end
+
+-- local fast aliases
+local band, bor, bxor = bit32.band, bit32.bor, bit32.bxor
+local lshift, rshift = bit32.lshift, bit32.rshift
+local extract = bit32.extract
+
+-- ============================================================
+-- [3] BYTECODE DESERIALIZER (NO &/>>/string.unpack)
+-- ============================================================
+
+function Titan.Deserialize(data)
+    if type(data) ~= "string" then
+        error("Deserialize expects byte string")
+    end
+
+    local cursor = 1
+    local len = #data
+
+    local function readByte()
+        if cursor > len then return 0 end
+        local v = string.byte(data, cursor)
+        cursor = cursor + 1
+        return v or 0
+    end
+
+    local function readU32()
+        if cursor + 3 > len then
+            cursor = len + 1
+            return 0
+        end
+        local b1, b2, b3, b4 = string.byte(data, cursor, cursor + 3)
+        cursor = cursor + 4
+        -- Big-endian (matches your original math)
+        return u32(b1 * 16777216 + b2 * 65536 + b3 * 256 + b4)
+    end
+
+    local function readString(n)
+        if n <= 0 then return "" end
+        if cursor + n - 1 > len then
+            cursor = len + 1
+            return ""
+        end
+        local s = string.sub(data, cursor, cursor + n - 1)
+        cursor = cursor + n
+        return s
+    end
+
+    local function readFloat64()
+        -- IEEE754 big-endian float64, manual decode (Lua 5.1 safe)
+        if cursor + 7 > len then
+            cursor = len + 1
+            return 0
+        end
+
+        local b = { string.byte(data, cursor, cursor + 7) }
+        cursor = cursor + 8
+
+        local sign = (b[1] >= 128) and -1 or 1
+        local exponent = ((b[1] % 128) * 16) + math.floor(b[2] / 16)
+
+        if exponent == 0 then return sign * 0.0 end
+        if exponent == 2047 then return sign * math.huge end
+
+        -- mantissa: 52 bits
+        local mant = 0
+        local frac = b[2] % 16
+        for i = 2, 8 do
+            mant = mant * 256 + ((i == 2) and frac or b[i])
+        end
+        mant = mant / (2 ^ 52)
+
+        return sign * (2 ^ (exponent - 1023)) * (1 + mant)
+    end
+
+    local version = readByte()
+    if version < 2 or version > 6 then
+        error("Unsupported bytecode version: " .. tostring(version))
+    end
+
+    local flags = readByte() -- unused for now
+    local typeVersion = 0
+
+    if version >= 4 then
+        typeVersion = readByte()
+        readByte() -- reserved
+    else
+        readByte()
+        readByte()
+    end
+
+    local proto = {
+        version = version,
+        typeVersion = typeVersion,
+        code = {},
+        constants = {},
+        protos = {},
+        upvalues = {},
+        numparams = 0,
+        is_vararg = false,
+        maxstacksize = 0,
+        source = "",
+        lineinfo = nil,
+    }
+
+    local sourceLen = readU32()
+    proto.source = (sourceLen > 0) and readString(sourceLen) or ""
+
+    local lineInfoSize = readU32()
+    if lineInfoSize > 0 then
+        proto.lineinfo = readString(lineInfoSize)
+    end
+
+    local insCount = readU32()
+    for i = 1, insCount do
+        local raw = readU32()
+
+        -- raw layout decode (Lua 5.1, using bit32 polyfill)
+        local op = band(raw, 0xFF)
+        local A  = band(rshift(raw, 8), 0xFF)
+        local D  = band(rshift(raw, 16), 0xFFFF)
+
+        local B  = band(D, 0xFF)
+        local C  = band(rshift(D, 8), 0xFF)
+
+        local Bx = D
+        local sBx = Bx - 131071
+
+        local opname = "UNKNOWN"
+        if LUAU_OPCODES[op] then
+            opname = LUAU_OPCODES[op][1]
+        end
+
+        proto.code[i] = {
+            opcode = op,
+            opname = opname,
+            A = A, B = B, C = C, D = D,
+            Bx = Bx, sBx = sBx,
+            raw = raw,
+            pc = i - 1
+        }
+    end
+
+    local constCount = readU32()
+    for i = 1, constCount do
+        local constType = readByte()
+        local constant = { type = constType }
+
+        if constType == 0 then
+            constant.value = nil
+        elseif constType == 1 then
+            constant.value = (readByte() ~= 0)
+        elseif constType == 2 then
+            constant.value = readFloat64()
+        elseif constType == 3 then
+            local slen = readU32()
+            constant.value = readString(slen)
+        elseif constType == 4 then
+            local count = readByte()
+            local t = {}
+            for j = 1, count do
+                local slen = readU32()
+                t[j] = readString(slen)
+            end
+            constant.value = t
+        elseif constType == 5 then
+            local length = readU32()
+            local t = {}
+            for j = 1, length do
+                t[j] = readU32()
+            end
+            constant.value = t
+        end
+
+        proto.constants[i] = constant
+    end
+
+    if version >= 4 and typeVersion > 0 then
+        local typeInfoSize = readU32()
+        if typeInfoSize > 0 then
+            proto.typeinfo = readString(typeInfoSize)
+        end
+    end
+
+    local protoCount = readU32()
+    for i = 1, protoCount do
+        local childSize = readU32()
+        local childData = readString(childSize)
+        proto.protos[i] = Titan.Deserialize(childData)
+    end
+
+    local upvalueCount = readU32()
+    for i = 1, upvalueCount do
+        local instack = (readByte() ~= 0)
+        local idx = readByte()
+        local nameLen = readU32()
+        local name = (nameLen > 0) and readString(nameLen) or ""
+
+        proto.upvalues[i] = { name = name, instack = instack, idx = idx }
+    end
+
+    local debugSize = readU32()
+    if debugSize > 0 then
+        proto.debuginfo = readString(debugSize)
+    end
+
+    proto.numparams = readByte()
+    proto.is_vararg = (readByte() ~= 0)
+    proto.maxstacksize = readByte()
+    proto.linedefined = readU32()
+    proto.lastlinedefined = readU32()
+
+    return proto
+end
+
+-- ============================================================
+-- [4] CONTROL FLOW GRAPH BUILDER (Lua 5.1 safe)
+-- ============================================================
+
+function Titan.BuildCFG(proto)
+    local blocks = {}
+    local leaders = { 1 }
+    local leaderSet = { [1] = true }
+
+    local function addLeader(pc)
+        if pc and pc >= 1 and pc <= #proto.code and not leaderSet[pc] then
+            leaderSet[pc] = true
+            leaders[#leaders + 1] = pc
+        end
+    end
+
+    for pc, ins in ipairs(proto.code) do
+        local op = ins.opcode
+
+        if op == 22 then -- JMP
+            addLeader(pc + 1 + ins.sBx)
+            addLeader(pc + 1)
+        elseif op == 31 or op == 32 then -- FORLOOP, FORPREP
+            addLeader(pc + 1 + ins.sBx)
+            addLeader(pc + 1)
+        elseif op == 40 or op == 42 then -- FORNPREP, FORGPREP
+            addLeader(pc + 1 + ins.D)
+            addLeader(pc + 1)
+        elseif op == 41 or op == 43 then -- FORNLOOP, FORGLOOP
+            addLeader(pc + 1 + ins.D)
+            addLeader(pc + 1)
+        elseif op >= 49 and op <= 52 then -- JUMPXEQK*
+            addLeader(pc + 1 + ins.D)
+            addLeader(pc + 1)
+        elseif op == 26 or op == 27 then -- TEST, TESTSET
+            addLeader(pc + 1 + ins.C)
+            addLeader(pc + 1)
+        elseif op == 184 then -- JUMPBACK
+            addLeader(pc + 1 + ins.sBx)
+            addLeader(pc + 1)
+        end
+    end
+
+    table.sort(leaders)
+
+    for i = 1, #leaders do
+        local start = leaders[i]
+        local finish = (leaders[i + 1] and (leaders[i + 1] - 1)) or #proto.code
+
+        local block = {
+            id = start,
+            start = start,
+            finish = finish,
+            instructions = {},
+            successors = {},
+            predecessors = {},
+        }
+
+        for pc = start, finish do
+            block.instructions[#block.instructions + 1] = proto.code[pc]
+        end
+
+        blocks[start] = block
+    end
+
+    local function addEdge(fromId, toId)
+        local from = blocks[fromId]
+        local to = blocks[toId]
+        if not from or not to then return end
+
+        from.successors[#from.successors + 1] = toId
+        to.predecessors[#to.predecessors + 1] = fromId
+    end
+
+    for _, block in pairs(blocks) do
+        local last = block.instructions[#block.instructions]
+        if last then
+            local op = last.opcode
+
+            if op == 22 or op == 184 then -- JMP, JUMPBACK
+                addEdge(block.id, last.pc + 1 + last.sBx)
+            elseif op == 31 or op == 32 then -- FORLOOP, FORPREP
+                addEdge(block.id, last.pc + 1 + last.sBx)
+                addEdge(block.id, last.pc + 2)
+            elseif op == 40 or op == 42 then -- FORNPREP, FORGPREP
+                addEdge(block.id, last.pc + 1 + last.D)
+                addEdge(block.id, last.pc + 2)
+            elseif op == 41 or op == 43 then -- FORNLOOP, FORGLOOP
+                addEdge(block.id, last.pc + 1 + last.D)
+                addEdge(block.id, last.pc + 2)
+            elseif (op >= 49 and op <= 52) or op == 26 or op == 27 then
+                local joff = (op >= 49 and op <= 52) and last.D or last.C
+                addEdge(block.id, last.pc + 1 + joff)
+                addEdge(block.id, last.pc + 2)
+            elseif op ~= 30 and op ~= 29 then -- not RETURN/TAILCALL
+                addEdge(block.id, last.pc + 2)
+            end
+        end
+    end
+
+    return { blocks = blocks, entry = blocks[1] }
+end
+
+-- ============================================================
+-- [5] BASIC STRUCTURER (kept close to yours, Lua 5.1 safe)
+-- ============================================================
+
+function Titan.StructureCFG(cfg, proto)
+    local visited = {}
+
+    local function isLoopHeader(block_id)
+        local block = cfg.blocks[block_id]
+        if not block then return false end
+        for i = 1, #block.predecessors do
+            if block.predecessors[i] >= block_id then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function getLoopExit(header_id)
+        local block = cfg.blocks[header_id]
+        if not block or #block.successors < 2 then return nil end
+        for i = 1, #block.successors do
+            if block.successors[i] > header_id then
+                return block.successors[i]
+            end
+        end
+        return block.successors[1]
+    end
+
+    local function structureLoop(header_id)
+        local block = cfg.blocks[header_id]
+        if not block or #block.instructions == 0 then return nil end
+
+        local first = block.instructions[1]
+
+        if first.opcode == 40 then -- FORNPREP
+            local loop_exit = first.pc + 1 + first.D
+            return {
+                type = "numeric_for",
+                var = first.A,
+                start = first.A,
+                limit = first.A + 1,
+                step = first.A + 2,
+                body_start = header_id + 1,
+                exit = loop_exit
+            }
+        elseif first.opcode == 42 then -- FORGPREP
+            local loop_exit = first.pc + 1 + first.D
+            return {
+                type = "generic_for",
+                base = first.A,
+                body_start = header_id + 1,
+                exit = loop_exit
+            }
+        elseif first.opcode == 32 then -- FORPREP legacy
+            local loop_exit = first.pc + 1 + first.sBx
+            return {
+                type = "numeric_for",
+                var = first.A,
+                start = first.A,
+                limit = first.A + 1,
+                step = first.A + 2,
+                body_start = header_id + 1,
+                exit = loop_exit
+            }
+        else
+            return {
+                type = "while",
+                body_start = header_id + 1,
+                exit = getLoopExit(header_id),
+                condition_block = header_id
+            }
+        end
+    end
+
+    local function structureIf(block_id)
+        local block = cfg.blocks[block_id]
+        if not block or #block.successors ~= 2 then return nil end
+
+        local last = block.instructions[#block.instructions]
+        if not last then return nil end
+
+        local cond = nil
+
+        if last.opcode == 26 or last.opcode == 27 then
+            cond = { type = "test", register = last.A, invert = (last.C == 0) }
+        elseif last.opcode >= 49 and last.opcode <= 52 then
+            local const = proto.constants[last.B + 1]
+            cond = { type = "equality", register = last.A, constant = const, opcode = last.opcode }
+        elseif last.opcode >= 23 and last.opcode <= 25 then
+            cond = { type = "comparison", opcode = last.opcode, left = last.B, right = last.C, invert = (last.A == 0) }
+        end
+
+        if not cond then return nil end
+
+        return {
+            type = "if",
+            condition = cond,
+            true_branch = block.successors[1],
+            false_branch = block.successors[2]
+        }
+    end
+
+    local function traverse(block_id, depth)
+        if depth > 2000 then return nil end
+        if visited[block_id] then return nil end
+        visited[block_id] = true
+
+        local block = cfg.blocks[block_id]
+        if not block then return nil end
+
+        if isLoopHeader(block_id) then
+            local loop_info = structureLoop(block_id)
+            if loop_info then
+                local node = { type = loop_info.type, data = loop_info, body = {} }
+
+                local cur = loop_info.body_start
+                local exit = loop_info.exit or (block_id + 1)
+
+                while cur and cur < exit and cfg.blocks[cur] do
+                    if not visited[cur] then
+                        local child = traverse(cur, depth + 1)
+                        if child then node.body[#node.body + 1] = child end
+                    end
+
+                    local cb = cfg.blocks[cur]
+                    if cb and #cb.successors > 0 then
+                        cur = cb.successors[1]
+                    else
+                        break
+                    end
+                end
+
+                return node
+            end
+        end
+
+        local if_info = structureIf(block_id)
+        if if_info then
+            local node = { type = "if", condition = if_info.condition, then_body = {}, else_body = {} }
+
+            if not visited[if_info.true_branch] then
+                local tnode = traverse(if_info.true_branch, depth + 1)
+                if tnode then node.then_body[#node.then_body + 1] = tnode end
+            end
+            if not visited[if_info.false_branch] then
+                local enode = traverse(if_info.false_branch, depth + 1)
+                if enode then node.else_body[#node.else_body + 1] = enode end
+            end
+
+            return node
+        end
+
+        local node = { type = "block", id = block_id, block = block }
+
+        if #block.successors == 1 and not visited[block.successors[1]] then
+            local next_node = traverse(block.successors[1], depth + 1)
+            if next_node then
+                return { type = "sequence", children = { node, next_node } }
+            end
+        end
+
+        return node
+    end
+
+    return traverse(1, 0) or { type = "block", id = 1, block = cfg.blocks[1] }
+end
+
+-- ============================================================
+-- [6] EXPRESSION BUILDER (Lua 5.1)
+-- ============================================================
+
+function Titan.BuildExpressions(proto)
+    local expr_cache = {}
+
+    local function formatConstant(const)
+        if not const then return "nil" end
+        if const.type == 1 then return const.value and "true" or "false" end
+        if const.type == 2 then return tostring(const.value) end
+        if const.type == 3 then return string.format("%q", const.value) end
+        if const.type == 4 then return table.concat(const.value, ".") end
+        return "nil"
+    end
+
+    local function getRK(operand)
+        if operand >= 256 then
+            local idx = operand - 256
+            return formatConstant(proto.constants[idx + 1])
+        else
+            return string.format("r%d", operand)
+        end
+    end
+
+    for pc = 1, #proto.code do
+        local ins = proto.code[pc]
+        local op = ins.opcode
+        local expr
+
+        if op == 0 then
+            expr = string.format("r%d", ins.B)
+        elseif op == 1 then
+            expr = formatConstant(proto.constants[ins.Bx + 1])
+        elseif op == 2 then
+            expr = (ins.B ~= 0) and "true" or "false"
+        elseif op == 3 then
+            expr = "nil"
+        elseif op == 10 then
+            expr = "{}"
+        elseif op >= 12 and op <= 17 then
+            local ops = { [12]="+", [13]="-", [14]="*", [15]="/", [16]="%", [17]="^" }
+            expr = string.format("(%s %s %s)", getRK(ins.B), ops[op], getRK(ins.C))
+        elseif op == 18 then
+            expr = string.format("(-%s)", getRK(ins.B))
+        elseif op == 19 then
+            expr = string.format("(not %s)", getRK(ins.B))
+        elseif op == 20 then
+            expr = string.format("#%s", getRK(ins.B))
+        elseif op == 21 then
+            local parts = {}
+            for i = ins.B, ins.C do
+                parts[#parts + 1] = getRK(i)
+            end
+            expr = table.concat(parts, " .. ")
+        elseif op == 6 then
+            expr = string.format("%s[%s]", getRK(ins.B), getRK(ins.C))
+        elseif op == 182 then
+            local const = proto.constants[ins.C + 1]
+            if const and const.type == 3 then
+                expr = string.format("r%d.%s", ins.B, const.value)
+            end
+        elseif op == 180 then
+            local const = proto.constants[ins.Bx + 1]
+            if const and const.type == 4 then
+                expr = table.concat(const.value, ".")
+            end
+        elseif op == 185 then
+            expr = string.format("(%s and %s)", getRK(ins.B), getRK(ins.C))
+        elseif op == 186 then
+            expr = string.format("(%s or %s)", getRK(ins.B), getRK(ins.C))
+        end
+
+        if expr then
+            expr_cache[ins.A] = { pc = pc, expr = expr }
+        end
+    end
+
+    return expr_cache
+end
+
+-- ============================================================
+-- [7] VARIABLE NAME RESOLVER
+-- ============================================================
+
+function Titan.ResolveNames(proto, expr_cache)
+    local names = {}
+    local var_counter = 1
+
+    for i = 0, proto.numparams - 1 do
+        names[i] = "arg" .. (i + 1)
+    end
+
+    for i = proto.numparams, proto.maxstacksize - 1 do
+        if expr_cache[i] then
+            names[i] = expr_cache[i].expr
+        else
+            names[i] = "var" .. var_counter
+            var_counter = var_counter + 1
+        end
+    end
+
+    return names
+end
+
+-- ============================================================
+-- [8] CODE GENERATOR
+-- ============================================================
+
+function Titan.GenerateCode(proto, structured, names, expr_cache)
+    local out = {}
+    local indent_level = 0
+
+    local function indent()
+        return string.rep("    ", indent_level)
+    end
+
+    local function add(line)
+        if line and line ~= "" then
+            out[#out + 1] = indent() .. line
+        end
+    end
+
+    local function formatConstant(const)
+        if not const then return "nil" end
+        if const.type == 1 then return const.value and "true" or "false" end
+        if const.type == 2 then return tostring(const.value) end
+        if const.type == 3 then return string.format("%q", const.value) end
+        if const.type == 4 then return table.concat(const.value, ".") end
+        return "nil"
+    end
+
+    local function getName(reg)
+        if expr_cache[reg] then return expr_cache[reg].expr end
+        return names[reg] or ("r" .. reg)
+    end
+
+    local function formatCondition(cond)
+        if not cond then return "true" end
+
+        if cond.type == "test" then
+            local name = getName(cond.register)
+            return cond.invert and ("not " .. name) or name
+        elseif cond.type == "equality" then
+            local name = getName(cond.register)
+            local value = formatConstant(cond.constant)
+            return string.format("%s == %s", name, value)
+        elseif cond.type == "comparison" then
+            local ops = { [23]="==", [24]="<", [25]="<=" }
+            local left = getName(cond.left)
+            local right = getName(cond.right)
+            local op = ops[cond.opcode] or "=="
+            if cond.invert then
+                if op == "==" then op = "~="
+                elseif op == "<" then op = ">="
+                else op = ">" end
+            end
+            return string.format("%s %s %s", left, op, right)
+        end
+
+        return "true"
+    end
+
+    local function genInstruction(ins)
+        local op = ins.opcode
+
+        if op == 0 then
+            return string.format("%s = %s", getName(ins.A), getName(ins.B))
+        elseif op == 1 then
+            return string.format("%s = %s", getName(ins.A), formatConstant(proto.constants[ins.Bx + 1]))
+        elseif op == 3 then
+            local vars = {}
+            for i = ins.A, ins.B do vars[#vars + 1] = getName(i) end
+            return table.concat(vars, ", ") .. " = nil"
+        elseif op == 10 then
+            return string.format("%s = {}", getName(ins.A))
+        elseif op == 9 then
+            return string.format("%s[%s] = %s", getName(ins.A), getName(ins.B), getName(ins.C))
+        elseif op == 183 then
+            local const = proto.constants[ins.B + 1]
+            if const and const.type == 3 then
+                return string.format("%s.%s = %s", getName(ins.A), const.value, getName(ins.C))
+            end
+        elseif op == 28 then
+            local args = {}
+            for i = 1, ins.B - 1 do
+                args[#args + 1] = getName(ins.A + i)
+            end
+            local call = getName(ins.A) .. "(" .. table.concat(args, ", ") .. ")"
+            if ins.C > 1 then
+                local rets = {}
+                for i = 0, ins.C - 2 do rets[#rets + 1] = getName(ins.A + i) end
+                return table.concat(rets, ", ") .. " = " .. call
+            else
+                return call
+            end
+        elseif op == 30 then
+            local rets = {}
+            for i = 0, ins.B - 2 do
+                rets[#rets + 1] = getName(ins.A + i)
+            end
+            if #rets > 0 then
+                return "return " .. table.concat(rets, ", ")
+            else
+                return "return"
+            end
+        elseif op >= 45 and op <= 47 then
+            local builtin = LUAU_BUILTINS[ins.A] or "unknown"
+            if op == 45 then
+                return builtin .. "(" .. getName(ins.B) .. ")"
+            elseif op == 46 then
+                return builtin .. "(" .. getName(ins.B) .. ", " .. getName(ins.C) .. ")"
+            end
+        end
+
+        return nil
+    end
+
+    local function genBlock(block)
+        if not block or not block.instructions then return end
+        for i = 1, #block.instructions do
+            local ins = block.instructions[i]
+            -- skip control-flow ops; structured nodes handle them
+            if ins.opcode ~= 22 and ins.opcode ~= 26 and ins.opcode ~= 27
+               and ins.opcode ~= 40 and ins.opcode ~= 41
+               and ins.opcode ~= 42 and ins.opcode ~= 43
+               and ins.opcode ~= 184 then
+                local line = genInstruction(ins)
+                if line then add(line) end
+            end
+        end
+    end
+
+    local function genNode(node)
+        if not node then return end
+
+        if node.type == "block" then
+            genBlock(node.block)
+
+        elseif node.type == "sequence" then
+            for i = 1, #node.children do
+                genNode(node.children[i])
+            end
+
+        elseif node.type == "if" then
+            add("if " .. formatCondition(node.condition) .. " then")
+            indent_level = indent_level + 1
+            for i = 1, #node.then_body do genNode(node.then_body[i]) end
+            indent_level = indent_level - 1
+
+            if node.else_body and #node.else_body > 0 then
+                add("else")
+                indent_level = indent_level + 1
+                for i = 1, #node.else_body do genNode(node.else_body[i]) end
+                indent_level = indent_level - 1
+            end
+
+            add("end")
+
+        elseif node.type == "numeric_for" then
+            local d = node.data
+            add(string.format("for %s = %s, %s, %s do",
+                getName(d.var), getName(d.start), getName(d.limit), getName(d.step)))
+            indent_level = indent_level + 1
+            for i = 1, #node.body do genNode(node.body[i]) end
+            indent_level = indent_level - 1
+            add("end")
+
+        elseif node.type == "generic_for" then
+            local d = node.data
+            add(string.format("for k, v in %s do", getName(d.base)))
+            indent_level = indent_level + 1
+            for i = 1, #node.body do genNode(node.body[i]) end
+            indent_level = indent_level - 1
+            add("end")
+
+        elseif node.type == "while" then
+            add("while true do")
+            indent_level = indent_level + 1
+            for i = 1, #node.body do genNode(node.body[i]) end
+            indent_level = indent_level - 1
+            add("end")
+        end
+    end
+
+    local params = {}
+    for i = 0, proto.numparams - 1 do params[#params + 1] = getName(i) end
+    if proto.is_vararg then params[#params + 1] = "..." end
+
+    add("function(" .. table.concat(params, ", ") .. ")")
+    indent_level = indent_level + 1
+    genNode(structured)
+    indent_level = indent_level - 1
+    add("end")
+
+    return table.concat(out, "\n")
+end
+
+-- ============================================================
+-- [9] MAIN PIPELINE
+-- ============================================================
+
+function Titan.decompile(bytecode)
+    local proto = Titan.Deserialize(bytecode)
+    local cfg = Titan.BuildCFG(proto)
+    local structured = Titan.StructureCFG(cfg, proto)
+    local expr_cache = Titan.BuildExpressions(proto)
+    local names = Titan.ResolveNames(proto, expr_cache)
+    return Titan.GenerateCode(proto, structured, names, expr_cache)
+end
+
+function Titan.safe_decompile(bytecode)
+    local ok, res = pcall(Titan.decompile, bytecode)
+    if ok then return res end
+    return "-- Decompilation failed: " .. tostring(res)
+end
+
+return Titan
