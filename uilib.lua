@@ -1,32 +1,4 @@
---[[
-    ╔═══════════════════════════════════════════════════════════════════════════╗
-    ║                              NEXUS UI LIBRARY                              ║
-    ║                    Dark Theme with Cyan/Blue Accents                       ║
-    ║                          Version 2.0.0 | Luau                              ║
-    ╚═══════════════════════════════════════════════════════════════════════════╝
-    
-    A comprehensive, production-grade UI library for Roblox featuring:
-    • Dark theme with customizable blue/cyan accents
-    • Smooth animations and micro-interactions
-    • Responsive components with hover states
-    • Notification system with queuing
-    • Modal dialogs and context menus
-    • Form components (inputs, sliders, toggles, dropdowns)
-    • Tab systems and accordions
-    • Progress indicators and loading states
-    • Toast notifications
-    • Tooltips
-    • Data tables with sorting
-    • Color picker
-    • Keybind system
-    
-    Usage:
-        local NexusUI = require(path.to.NexusUI)
-        local UI = NexusUI.new()
-        local window = UI:CreateWindow({ Title = "My Application" })
-        local tab = window:AddTab({ Name = "Main", Icon = "rbxassetid://123" })
-        tab:AddButton({ Text = "Click Me", Callback = function() print("Clicked!") end })
---]]
+
 
 local NexusUI = {}
 NexusUI.__index = NexusUI
